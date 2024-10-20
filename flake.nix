@@ -16,6 +16,7 @@
           packages = [
             pkgs.go
             pkgs.openssl
+            pkgs.oci-cli
           ];
 
           inputsFrom = [
