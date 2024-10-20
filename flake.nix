@@ -15,6 +15,7 @@
         devShell = pkgs.mkShell {
           packages = [
             pkgs.go
+            pkgs.openssl
           ];
 
           inputsFrom = [

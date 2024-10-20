@@ -1,3 +1,9 @@
+# Program built binary
+ipcache
+
+# keys & certs
+certs/
+
 # Nix, direnv
 .direnv/
 
