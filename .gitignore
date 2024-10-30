@@ -1,5 +1,7 @@
 # Program built binary
 ipcache
+server
+client
 
 # keys & certs
 certs/
