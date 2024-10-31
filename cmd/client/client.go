@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bufio"
 	"crypto/tls"
+	"fmt"
 	"log"
+	"strings"
+
 	//"net"
-	//"bufio"
+	"os"
 )
 
 func main() {
@@ -21,18 +25,46 @@ func main() {
 	}
 	defer conn.Close()
 
-	n, err := conn.Write([]byte("Hello from Client\n"))
+	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
+	rw := bufio.NewReadWriter(r, w)
+	n, err := rw.Write([]byte("Hello from Client\n"))
 	if err != nil {
 		log.Println(n, err)
 		return
 	}
 
-	buf := make([]byte, 100)
-	n, err = conn.Read(buf)
+	//buf := make([]byte, 100)
+	str, err := rw.ReadString('\n')
 	if err != nil {
 		log.Println(n, err)
 		return
 	}
+	log.Println("Received from server:", str)
 
-	log.Println("Received from server:", string(buf[:n]))
+	scan := bufio.NewScanner(os.Stdin)
+	fmt.Print(">>> ")
+
+	for scan.Scan() {
+		input := strings.TrimSpace(scan.Text())
+		if len(input) == 0 {
+			fmt.Print(">>> ")
+			continue
+		}
+
+		n, err := rw.Write([]byte(input + "\n"))
+		log.Println("Wrote", n, "bytes")
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		err = rw.Flush()
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		fmt.Print(">>> ")
+	}
+
 }

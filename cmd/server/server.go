@@ -28,7 +28,7 @@ func main() {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			log.Println("Failed to accept connection\n\tGot error: ", err)
+			log.Println("Failed to accept connection\n\tGot error:", err)
 			continue
 		}
 		go tlsServe(conn)
@@ -39,26 +39,34 @@ func main() {
 func tlsServe(conn net.Conn) {
 	defer conn.Close()
 
-	n, err := conn.Write([]byte("World\n"))
-	log.Println("Wrote", n, "bytes")
+	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
+	rw := bufio.NewReadWriter(r, w)
+
+	n, err := rw.Write([]byte("Hello from server\n"))
 	if err != nil {
 		log.Println("\tGot error:", err)
 		return
 	}
+	err = rw.Flush()
+	if err != nil {
+		log.Println("\tGot error:", err)
+		return
+	}
+	log.Println("Wrote", n, "bytes")
 
-	r := bufio.NewReader(conn)
 	for {
-		msg, err := r.ReadString('\n')
+		msg, err := rw.ReadString('\n')
 		switch err {
 		case nil:
 			break
 		case io.EOF:
+			log.Println("Connection closed")
 			return
 		default:
 			log.Println("Call to ReadString failed\n\tGot error: ", err)
 			return
 		}
-		log.Println("Received from client:", msg)
+		log.Print("Received from client:", msg)
 	}
 
 }
