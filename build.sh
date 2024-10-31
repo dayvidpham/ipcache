@@ -3,5 +3,5 @@
 # Stop on first fail
 set -e
 
-go build ./server.go
-go build ./client.go
+go build ./cmd/server
+go build ./cmd/client
