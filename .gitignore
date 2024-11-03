@@ -3,6 +3,7 @@ ipcache.db
 /ipcache
 /server
 /client
+/clientd
 
 # keys & certs
 certs/
