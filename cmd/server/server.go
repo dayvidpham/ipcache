@@ -15,12 +15,28 @@ func main() {
 	log.SetFlags(log.Lshortfile)
 	log.Println("Hello, World!")
 
+	/*
+		From https://smallstep.com/hello-mtls/doc/combined/go/go
+		caCert, _ := ioutil.ReadFile("ca.crt")
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+
+		tlsConfig := &tls.Config{
+		    ClientCAs: caCertPool,
+		    ClientAuth: tls.RequireAndVerifyClientCert,
+		}
+		tlsConfig.BuildNameToCertificate()
+	*/
+
 	cert, err := tls.LoadX509KeyPair("./certs/self.pem", "./certs/self.key")
 	if err != nil {
 		panic(err)
 	}
 
-	config := &tls.Config{Certificates: []tls.Certificate{cert}}
+	config := &tls.Config{
+		Certificates: []tls.Certificate{cert},
+		ClientAuth: tls.RequireAndVerifyClientCert,
+	}
 	ln, err := tls.Listen("tcp", ":4430", config)
 	if err != nil {
 		panic(err)
