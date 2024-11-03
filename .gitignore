@@ -1,4 +1,5 @@
 # Program built binary
+ipcache.db
 /ipcache
 /server
 /client
