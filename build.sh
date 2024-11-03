@@ -5,3 +5,4 @@ set -e
 
 go build ./cmd/server
 go build ./cmd/client
+go build ./cmd/clientd
