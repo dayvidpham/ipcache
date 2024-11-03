@@ -1,5 +1,5 @@
 {
-  description = "Nix Develop Scaffolder";
+  description = "Go CLI application that performs health checks and stores IPs of authenticated machines over TLS";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-24.05";
@@ -17,11 +17,19 @@
             pkgs.go
             pkgs.openssl
             pkgs.oci-cli
+            pkgs.gcc13
+            pkgs.sqlite
+            pkgs.sqlite-utils
           ];
 
           inputsFrom = [
             pkgs.go
           ];
+
+          shellHook = ''
+            # CGo dep
+            CGO_ENABLED=1
+          '';
 
 
           #nativeBuildInputs = [
