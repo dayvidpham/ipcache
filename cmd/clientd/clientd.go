@@ -32,7 +32,7 @@ func main() {
 
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
-	
+
 	cert, err := tls.LoadX509KeyPair("certs/self.pem", "certs/self.key")
 	if err != nil {
 		log.Println("[FATAL]: Loading X509 key pair failed.\n\t- Reason:", err)
@@ -40,32 +40,12 @@ func main() {
 	}
 
 	config := tls.Config{
-		RootCAs: caCertPool,
+		RootCAs:      caCertPool,
 		Certificates: []tls.Certificate{cert},
 	}
 
 	log.Println("Sending", len(config.Certificates), "certificates")
 	//log.Println("- the cert:", config.Certificates[0])
-
-	/*
-	 * // From https://smallstep.com/hello-mtls/doc/combined/go/go
-	 * caCert, _ := ioutil.ReadFile("ca.crt")
-	 * caCertPool := x509.NewCertPool()
-	 * caCertPool.AppendCertsFromPEM(caCert)
-	 * 
-	 * cert, _ := tls.LoadX509KeyPair("client.crt", "client.key")
-	 * 
-	 * client := &http.Client{
-	 *     Transport: &http.Transport{
-	 *         TLSClientConfig: &tls.Config{
-	 *             RootCAs: caCertPool,
-	 *             Certificates: []tls.Certificate{cert},
-	 *         },
-	 *     },
-	 * }
-	 * // Make a request
-	 * r, err := client.Get("https://myserver.internal.net:9443")
-	 */
 
 	conn, err := tls.Dial("tcp", "127.0.0.1:4430", &config)
 	if err != nil {
