@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/base64"
+	"errors"
 	"io"
 	"log"
+
 	//"net"
 	"os"
 	//"database/sql"
@@ -27,11 +30,33 @@ func main() {
 		panic(err)
 	}
 
+	// BUG: Will need to synchronize for concurrent r/w
+	// mutex: sync.RWLock
+	// atomic CAS: atomics
+	cache := make(map[string]bool)
 	config := &tls.Config{
 		Certificates: []tls.Certificate{cert},
-		ClientCAs: caCertPool,
-		ClientAuth: tls.RequireAndVerifyClientCert,
+		ClientCAs:    caCertPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert,
+		VerifyConnection: func(state tls.ConnectionState) (err error) {
+			// NOTE: Use this b/c need entrypoint that's always called in order to grab client's cert
+			certs := state.PeerCertificates
+			if len(certs) < 1 {
+				return errors.New("PeerCertificates is empty, none were given by client")
+			}
+			cert := certs[0]
+
+			pubkey := base64.StdEncoding.EncodeToString(cert.SubjectKeyId)
+			_, ok := cache[pubkey]
+			if !ok {
+				cache[pubkey] = true
+			}
+			log.Printf("[INFO] Client public key: %+v\n", pubkey)
+
+			return err
+		},
 	}
+
 	ln, err := tls.Listen("tcp", ":4430", config)
 	if err != nil {
 		panic(err)
@@ -41,24 +66,17 @@ func main() {
 	for {
 		netconn, err := ln.Accept()
 		if err != nil {
-			log.Println("Failed to accept connection\n\tGot error:", err)
+			log.Println("[ERROR] Failed to accept connection\n\t-", err)
 			continue
 		}
 
 		conn, ok := netconn.(*tls.Conn)
 		if !ok {
-			log.Println("[ERROR]: Connection establed but is not a TLS connection for some reason.")
+			log.Println("[ERROR] Connection established but failed tls.Conn type assert.")
 			netconn.Close()
 			continue
 		}
-		log.Println("[INFO]: New TLS connection established!")
-
-		connstate := conn.ConnectionState()
-		clientcerts := connstate.VerifiedChains
-		log.Printf("\tClient provided %d certificates\n", len(clientcerts))
-		log.Println()
-		log.Printf("%+v\n", connstate)
-		//log.Println("\tleaf cert:", clientcerts[0])
+		log.Println("[INFO] New tls.Conn established, still need to do TLS handshake")
 
 		go tlsServe(conn)
 	}
@@ -68,20 +86,28 @@ func main() {
 func tlsServe(conn *tls.Conn) {
 	defer conn.Close()
 
+	// NOTE: The TLS handshake is normally performed lazily, but do eagerly to fail fast
+	err := conn.Handshake()
+	if err != nil {
+		log.Println("[ERROR] Failed TLS handshake.\n\t- Reason:", err)
+		return
+	}
+
 	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
 	rw := bufio.NewReadWriter(r, w)
 
 	n, err := rw.Write([]byte("Hello from server\n"))
+	log.Println("Buffered", n, "bytes")
 	if err != nil {
 		log.Println("\tGot error:", err)
 		return
 	}
+
 	err = rw.Flush()
 	if err != nil {
 		log.Println("\tGot error:", err)
 		return
 	}
-	log.Println("Wrote", n, "bytes")
 
 	for {
 		msg, err := rw.ReadString('\n')
@@ -92,10 +118,10 @@ func tlsServe(conn *tls.Conn) {
 			log.Println("Connection closed")
 			return
 		default:
-			log.Println("Call to ReadString failed\n\tGot error: ", err)
+			log.Println("Call to ReadString failed\n\t- Reason:", err)
 			return
 		}
-		log.Print("Received from client:", msg)
+		log.Print("Received from client: ", msg)
 	}
 
 }
