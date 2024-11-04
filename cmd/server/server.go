@@ -33,9 +33,11 @@ func main() {
 	// atomic CAS: atomics
 	cache := make(map[string]bool)
 	config := &tls.Config{
+		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{cert},
 		ClientCAs:    caCertPool,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
+
 		VerifyConnection: func(state tls.ConnectionState) (err error) {
 			// NOTE: Use this b/c need entrypoint that's always called in order to grab client's cert
 			certs := state.PeerCertificates

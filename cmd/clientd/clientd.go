@@ -83,8 +83,9 @@ func main() {
 	}
 
 	config := tls.Config{
-		RootCAs:      caCertPool,
+		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{cert},
+		RootCAs:      caCertPool,
 	}
 
 	conn, err := tls.Dial("tcp", parsedServerAddr, &config)
