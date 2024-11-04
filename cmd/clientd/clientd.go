@@ -3,6 +3,7 @@ package main
 import (
 	"bufio"
 	"crypto/tls"
+	"crypto/x509"
 	"fmt"
 	"log"
 	"strings"
@@ -22,9 +23,29 @@ func main() {
 
 	// Referencing https://gist.github.com/denji/12b3a568f092ab951456
 	log.SetFlags(log.Lshortfile)
-	config := &tls.Config{
-		InsecureSkipVerify: true,
+
+	caCert, err := os.ReadFile("certs/self.pem")
+	if err != nil {
+		log.Println("[FATAL]: Reading Root CA PEM file failed.\n\t- Reason:", err)
+		return
 	}
+
+	caCertPool := x509.NewCertPool()
+	caCertPool.AppendCertsFromPEM(caCert)
+	
+	cert, err := tls.LoadX509KeyPair("certs/self.pem", "certs/self.key")
+	if err != nil {
+		log.Println("[FATAL]: Loading X509 key pair failed.\n\t- Reason:", err)
+		return
+	}
+
+	config := tls.Config{
+		RootCAs: caCertPool,
+		Certificates: []tls.Certificate{cert},
+	}
+
+	log.Println("Sending", len(config.Certificates), "certificates")
+	//log.Println("- the cert:", config.Certificates[0])
 
 	/*
 	 * // From https://smallstep.com/hello-mtls/doc/combined/go/go
@@ -46,12 +67,14 @@ func main() {
 	 * r, err := client.Get("https://myserver.internal.net:9443")
 	 */
 
-	conn, err := tls.Dial("tcp", "127.0.0.1:4430", config)
+	conn, err := tls.Dial("tcp", "127.0.0.1:4430", &config)
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer conn.Close()
+
+	log.Printf("%+v\n", conn.ConnectionState())
 
 	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
 	rw := bufio.NewReadWriter(r, w)
