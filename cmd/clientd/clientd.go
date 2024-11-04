@@ -89,7 +89,7 @@ func main() {
 
 	conn, err := tls.Dial("tcp", parsedServerAddr, &config)
 	if err != nil {
-		log.Println(err)
+		log.Println("[FATAL] Failed to establish connection to the server at", parsedServerAddr, "\n\t- Reason:", err)
 		return
 	}
 	defer conn.Close()
