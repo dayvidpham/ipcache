@@ -9,7 +9,9 @@
 
   outputs = { self, nixpkgs, nixpkgs-unstable, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
-      let pkgs = import nixpkgs { inherit system; };
+      let
+        pkgs = import nixpkgs-unstable { inherit system; };
+        #pkgs-unstable = import nixpkgs-unstable { inherit system; };
       in
       {
         devShell = pkgs.mkShell {
