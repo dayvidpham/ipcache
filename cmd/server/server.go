@@ -8,8 +8,6 @@ import (
 	"errors"
 	"io"
 	"log"
-
-	//"net"
 	"os"
 	//"database/sql"
 	//"github.com/mattn/go-sqlite3"
@@ -57,7 +55,7 @@ func main() {
 		},
 	}
 
-	ln, err := tls.Listen("tcp", ":4430", config)
+	ln, err := tls.Listen("tcp", "127.0.0.1:4430", config)
 	if err != nil {
 		panic(err)
 	}
