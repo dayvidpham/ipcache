@@ -26,7 +26,7 @@ func main() {
 
 	caCert, err := os.ReadFile("certs/self.pem")
 	if err != nil {
-		log.Println("[FATAL]: Reading Root CA PEM file failed.\n\t- Reason:", err)
+		log.Println("[FATAL] Reading Root CA PEM file failed.\n\t- Reason:", err)
 		return
 	}
 
@@ -35,7 +35,7 @@ func main() {
 
 	cert, err := tls.LoadX509KeyPair("certs/self.pem", "certs/self.key")
 	if err != nil {
-		log.Println("[FATAL]: Loading X509 key pair failed.\n\t- Reason:", err)
+		log.Println("[FATAL] Loading X509 key pair failed.\n\t- Reason:", err)
 		return
 	}
 
@@ -54,8 +54,6 @@ func main() {
 	}
 	defer conn.Close()
 
-	log.Printf("%+v\n", conn.ConnectionState())
-
 	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
 	rw := bufio.NewReadWriter(r, w)
 	n, err := rw.Write([]byte("Hello from Client\n"))
@@ -64,7 +62,6 @@ func main() {
 		return
 	}
 
-	//buf := make([]byte, 100)
 	str, err := rw.ReadString('\n')
 	if err != nil {
 		log.Println(n, err)
