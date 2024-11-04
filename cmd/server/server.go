@@ -92,6 +92,10 @@ func tlsServe(conn *tls.Conn) {
 		log.Println("[ERROR] Failed TLS handshake.\n\t- Reason:", err)
 		return
 	}
+	log.Println("[INFO] TLS handshake succeeded!")
+
+	// NOTE: Need some kind of session identifier next???
+	// Side-effect from VerifyConnection to tell us client's SubjectKeyId/pubkey/session?
 
 	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
 	rw := bufio.NewReadWriter(r, w)
