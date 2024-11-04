@@ -76,14 +76,14 @@ func main() {
 			netconn.Close()
 			continue
 		}
-		log.Println("[INFO] New tls.Conn established, still need to do TLS handshake")
+		log.Println("[INFO] New tls.Conn established with", conn.RemoteAddr().String(), ", still need to do TLS handshake")
 
-		go tlsServe(conn)
+		go TlsServe(conn)
 	}
 
 }
 
-func tlsServe(conn *tls.Conn) {
+func TlsServe(conn *tls.Conn) {
 	defer conn.Close()
 
 	// NOTE: The TLS handshake is normally performed lazily, but do eagerly to fail fast
@@ -96,6 +96,7 @@ func tlsServe(conn *tls.Conn) {
 
 	// NOTE: Need some kind of session identifier next???
 	// Side-effect from VerifyConnection to tell us client's SubjectKeyId/pubkey/session?
+	// func GetConnPubkey(conn *tls.Conn) { ... }
 
 	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
 	rw := bufio.NewReadWriter(r, w)
