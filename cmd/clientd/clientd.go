@@ -107,11 +107,11 @@ func main() {
 	rw := bufio.NewReadWriter(r, w)
 	enc, dec := gob.NewEncoder(rw), gob.NewDecoder(rw)
 
-	//n, err := rw.Write([]byte("Hello from Client\n"))
-	msgreg := msgs.ClientRegister()
-	err = enc.Encode(&msgreg)
+	regMsg := msgs.ClientRegister()
+	err = msgs.Encode(enc, regMsg)
 	if err != nil {
-		log.Panicln("[FATAL]: Failed to encode ClientRegisterMessage\n\t- Reason:", err)
+		log.Println(err)
+		return
 	}
 	rw.Flush()
 
@@ -121,25 +121,25 @@ func main() {
 		log.Println(err)
 		return
 	}
-	log.Println("[INFO] Received from server", msgOk)
+	log.Println("[INFO] Received from server", msgOk.Type(), msgOk.Size())
 
+	var strMsg msgs.Message
 	scan := bufio.NewScanner(os.Stdin)
 	fmt.Print(">>> ")
 
 	for scan.Scan() {
-		input := strings.TrimSpace(scan.Text())
-		if len(input) == 0 {
+		input := strings.TrimSpace(scan.Text()) + "\n"
+		if len(input) == 1 {
 			fmt.Print(">>> ")
 			continue
 		}
 
-		n, err := rw.Write([]byte(input + "\n"))
-		log.Println("Wrote", n, "bytes")
-		if err != nil {
+		strMsg = msgs.String(input)
+		if err = enc.Encode(&strMsg); err != nil {
 			log.Println(err)
 			return
 		}
-
+		log.Println("Buffered", strMsg.Size(), "bytes")
 		err = rw.Flush()
 		if err != nil {
 			log.Println(err)

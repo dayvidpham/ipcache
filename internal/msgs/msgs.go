@@ -1,8 +1,10 @@
 package msgs
 
 import (
+	"bufio"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/binary"
 	"encoding/gob"
 	"errors"
 	"fmt"
@@ -19,48 +21,84 @@ const (
 )
 
 const (
-	MsgT_Ok MessageType = iota
-	MsgT_Err
+	T_Ok MessageType = iota
+	T_Err
+	T_String
 
-	MsgT_Ping
-	MsgT_Pong
+	T_Ping
+	T_Pong
 
-	MsgT_ClientRegister
-	MsgT_ClientGetIPs
+	T_ClientRegister
+	T_ClientGetIPs
 
-	MsgT_ClientGrantAuthorization
-	MsgT_ClientRevokeAuthorization
+	T_ClientGrantAuthorization
+	T_ClientRevokeAuthorization
 )
+
+var messageTypeName = map[MessageType]string{
+	T_Ok:     "Ok",
+	T_Err:    "Err",
+	T_String: "String",
+
+	T_Ping: "Ping",
+	T_Pong: "Pong",
+
+	T_ClientRegister: "ClientRegister",
+	T_ClientGetIPs:   "ClientGetIPs",
+
+	T_ClientGrantAuthorization:  "ClientGrantAuthorization",
+	T_ClientRevokeAuthorization: "ClientRevokeAuthorization",
+}
+
+func (mt MessageType) String() string {
+	return messageTypeName[mt]
+}
 
 var DefaultVersion ProtocolVersion = Version_1_0_0
 
 type Message interface {
 	Type() MessageType
-	Timestamp() time.Time
 	Version() ProtocolVersion
+	UnixTimestampUTC() int64
+	Size() int
+	Payload() []byte
 }
 
 type message struct {
-	MsgType   MessageType
-	CreatedAt time.Time
-	VersionAt ProtocolVersion
+	MsgType          MessageType
+	VersionAt        ProtocolVersion
+	CreatedAtUnixUTC int64
+	Data             []byte
 }
 
 func (m *message) Type() MessageType {
 	return m.MsgType
 }
-func (m *message) Timestamp() time.Time {
-	return m.CreatedAt
+func (m *message) UnixTimestampUTC() int64 {
+	return m.CreatedAtUnixUTC
 }
 func (m *message) Version() ProtocolVersion {
 	return m.VersionAt
 }
+func (m *message) Payload() []byte {
+	return m.Data
+}
+
+var emptyMsg message
+var msgStaticSize int = binary.Size(emptyMsg.MsgType) +
+	binary.Size(emptyMsg.VersionAt) +
+	binary.Size(emptyMsg.CreatedAtUnixUTC)
+
+func (m *message) Size() int {
+	return msgStaticSize + binary.Size(m.Data)
+}
 
 func NewMessage(msgT MessageType) Message {
 	return &message{
-		MsgType:   msgT,
-		CreatedAt: time.Now(),
-		VersionAt: DefaultVersion,
+		MsgType:          msgT,
+		VersionAt:        DefaultVersion,
+		CreatedAtUnixUTC: time.Now().UTC().Unix(),
+		Data:             nil,
 	}
 }
 
@@ -69,23 +107,29 @@ func SetDefaultVersion(version ProtocolVersion) {
 }
 
 func Ok() Message {
-	return NewMessage(MsgT_Ok)
+	return NewMessage(T_Ok)
 }
 
 func Err() Message {
-	return NewMessage(MsgT_Err)
+	return NewMessage(T_Err)
 }
 
 func Ping() Message {
-	return NewMessage(MsgT_Ping)
+	return NewMessage(T_Ping)
 }
 
 func Pong() Message {
-	return NewMessage(MsgT_Pong)
+	return NewMessage(T_Pong)
 }
 
 func ClientRegister() Message {
-	return NewMessage(MsgT_ClientRegister)
+	return NewMessage(T_ClientRegister)
+}
+
+func String(data string) Message {
+	msg := NewMessage(T_String).(*message)
+	msg.Data = []byte(data)
+	return msg
 }
 
 func Encode(enc *gob.Encoder, msg Message) (err error) {
@@ -153,4 +197,60 @@ func NewClient(conn *tls.Conn) (client Client, err error) {
 
 func init() {
 	gob.Register(&message{})
+}
+
+type Messenger interface {
+	Send(msg Message) (err error)
+	SendN(msg Message) (n int, err error)
+	Receive() (msg Message, err error)
+}
+
+type blockingMessenger struct {
+	conn   *tls.Conn
+	connrw *bufio.ReadWriter
+	enc    *gob.Encoder
+	dec    *gob.Decoder
+}
+
+func (bm *blockingMessenger) Send(msg Message) (err error) {
+	if err = Encode(bm.enc, msg); err != nil {
+		return fmt.Errorf("[ERROR] Messenger failed to Encode the message\n\t%w\n", err)
+	}
+	if err = bm.connrw.Flush(); err != nil {
+		return fmt.Errorf("[ERROR] Messenger failed to Flush the buffered connection\n\t%w\n", err)
+	}
+	return err
+}
+
+func (bm *blockingMessenger) SendN(msg Message) (n int, err error) {
+	n = 0
+	if err = Encode(bm.enc, msg); err != nil {
+		return n, fmt.Errorf("[ERROR] Messenger failed to Encode the message\n\t%w\n", err)
+	}
+
+	err = bm.connrw.Flush()
+	n = bm.connrw.Writer.Buffered()
+	if err != nil {
+		return n, fmt.Errorf("[ERROR] Messenger failed to Flush the buffered connection\n\t%w\n", err)
+	}
+	return
+}
+
+func (bm *blockingMessenger) Receive() (msg Message, err error) {
+	if msg, err = Decode(bm.dec); err != nil {
+		return msg, fmt.Errorf("[ERROR] Messenger failed to Decode the message from the buffered connection\n\t%w\n", err)
+	}
+	return
+}
+
+func NewMessenger(conn *tls.Conn) Messenger {
+	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
+	connrw := bufio.NewReadWriter(r, w)
+
+	return &blockingMessenger{
+		conn:   conn,
+		connrw: connrw,
+		enc:    gob.NewEncoder(connrw),
+		dec:    gob.NewDecoder(connrw),
+	}
 }

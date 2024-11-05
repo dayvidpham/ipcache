@@ -1,12 +1,11 @@
 package main
 
 import (
-	"bufio"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/gob"
 	"errors"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -88,11 +87,20 @@ func main() {
 func TlsServe(conn *tls.Conn) {
 	defer conn.Close()
 
-	// NOTE: The TLS handshake is normally performed lazily, but do eagerly to fail fast
-	var err error
+	var (
+		err    error
+		client msgs.Client
+		msg    msgs.Message
+	)
 
+	// NOTE: The TLS handshake is normally performed lazily, but do eagerly to fail fast
 	if err = conn.Handshake(); err != nil {
 		log.Println("[ERROR] Failed TLS handshake for", conn.RemoteAddr().String(), ".\n\t- Reason:", err)
+		return
+	}
+
+	if client, err = msgs.NewClient(conn); err != nil {
+		log.Println(err)
 		return
 	}
 	log.Println("[INFO] TLS handshake succeeded!")
@@ -101,36 +109,23 @@ func TlsServe(conn *tls.Conn) {
 	// Side-effect from VerifyConnection to tell us client's SubjectKeyId/pubkey/session?
 	// func GetConnPubkey(conn *tls.Conn) { ... }
 
-	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
-	rw := bufio.NewReadWriter(r, w)
-	enc, dec := gob.NewEncoder(rw), gob.NewDecoder(rw)
+	server := msgs.NewMessenger(conn)
 
-	_, err = msgs.Decode(dec)
-	if err != nil {
+	if err = server.Send(msgs.Ok()); err != nil {
 		log.Println(err)
 		return
 	}
 
-	if err = msgs.Encode(enc, msgs.Ok()); err != nil {
-		log.Println(err)
-		return
-	}
-	rw.Flush()
-
-	n, err := rw.Write([]byte("Hello from server\n"))
-	log.Println("Buffered", n, "bytes")
+	sendMsg := msgs.String("Hello from server\n")
+	n, err := server.SendN(sendMsg)
+	log.Printf("[INFO] Sending message of %d bytes, %d bytes sitting in buffer", sendMsg.Size(), n)
 	if err != nil {
-		log.Println("\tGot error:", err)
-		return
-	}
-
-	if err = rw.Flush(); err != nil {
-		log.Println("\tGot error:", err)
+		log.Println(err)
 		return
 	}
 
 	for {
-		msg, err := rw.ReadString('\n')
+		msg, err = server.Receive()
 		switch err {
 		case nil:
 			break
@@ -138,11 +133,19 @@ func TlsServe(conn *tls.Conn) {
 			log.Println("Connection closed")
 			return
 		default:
-			log.Println("Call to ReadString failed\n\t- Reason:", err)
+			log.Println(err)
 			return
 		}
-		id, err := msgs.ConnId(conn)
-		log.Print("Received from client: ", msg, "\t", id, "\n\n")
+
+		err = nil
+		switch msg.Type() {
+		case msgs.T_ClientRegister:
+			ClientRegisterHandler(msg, client)
+		case msgs.T_String:
+			StringMessageHandler(msg, client)
+		default:
+			err = fmt.Errorf("[ERROR] Unimplemented message type:\n\t%s\n", msg.Type())
+		}
 		if err != nil {
 			log.Println(err)
 			return
@@ -150,12 +153,9 @@ func TlsServe(conn *tls.Conn) {
 	}
 }
 
-func ClientRegisterHandler(enc *gob.Encoder, dec *gob.Decoder, client msgs.Client) {
-	registerMsg, err := msgs.Decode(dec)
-	if err != nil {
-		return
-	}
-
-	log.Println("[INFO] Received msgs.ClientRegister from", registerMsg)
-
+func StringMessageHandler(msg msgs.Message, client msgs.Client) {
+	log.Printf("Received from %+v: %s\n\tPayload: %s\n", client, msg.Type(), msg.Payload())
+}
+func ClientRegisterHandler(msg msgs.Message, client msgs.Client) {
+	log.Printf("Received from %+v: %s\n", client, msg.Type())
 }
