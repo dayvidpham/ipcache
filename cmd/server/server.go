@@ -118,7 +118,7 @@ func TlsServe(conn *tls.Conn) {
 
 	sendMsg := msgs.String("Hello from server\n")
 	n, err := server.SendN(sendMsg)
-	log.Printf("[INFO] Sending message of %d bytes, %d bytes sitting in buffer", sendMsg.Size(), n)
+	log.Printf("[INFO] Sending message of %d bytes, %d bytes sitting in buffer\n", sendMsg.Size(), n)
 	if err != nil {
 		log.Println(err)
 		return

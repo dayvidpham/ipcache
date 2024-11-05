@@ -135,7 +135,7 @@ func String(data string) Message {
 func Encode(enc *gob.Encoder, msg Message) (err error) {
 	err = enc.Encode(&msg)
 	if err != nil {
-		log.Printf("[ERROR]: Failed to encode Message\n\t%+v\n", err)
+		return fmt.Errorf("[ERROR] Failed to decode Message\n\t%+w\n", err)
 	}
 	return err
 }
@@ -143,7 +143,7 @@ func Encode(enc *gob.Encoder, msg Message) (err error) {
 func Decode(dec *gob.Decoder) (msg Message, err error) {
 	err = dec.Decode(&msg)
 	if err != nil {
-		log.Printf("[ERROR]: Failed to decode Message\n\t%+v\n", err)
+		return msg, fmt.Errorf("[ERROR] Failed to decode Message\n\t%+w\n", err)
 	}
 	return msg, err
 }
@@ -238,7 +238,7 @@ func (bm *blockingMessenger) SendN(msg Message) (n int, err error) {
 
 func (bm *blockingMessenger) Receive() (msg Message, err error) {
 	if msg, err = Decode(bm.dec); err != nil {
-		return msg, fmt.Errorf("[ERROR] Messenger failed to Decode the message from the buffered connection\n\t%w\n", err)
+		return msg, fmt.Errorf("[ERROR] Messenger failed during Receive\n\t%w\n", err)
 	}
 	return
 }

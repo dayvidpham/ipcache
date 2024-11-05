@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/gob"
 	"flag"
 	"fmt"
 	"log"
@@ -103,27 +102,23 @@ func main() {
 	// Referencing https://gist.github.com/denji/12b3a568f092ab951456
 	///////////////////////////////
 
-	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
-	rw := bufio.NewReadWriter(r, w)
-	enc, dec := gob.NewEncoder(rw), gob.NewDecoder(rw)
+	client := msgs.NewMessenger(conn)
 
-	regMsg := msgs.ClientRegister()
-	err = msgs.Encode(enc, regMsg)
+	sendMsg := msgs.ClientRegister()
+	n, err := client.SendN(sendMsg)
+	log.Printf("[INFO] Sending message of %d bytes, %d bytes sitting in buffer", sendMsg.Size(), n)
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	rw.Flush()
 
-	var msgOk msgs.Message
-	err = dec.Decode(&msgOk)
+	okMsg, err := client.Receive()
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	log.Println("[INFO] Received from server", msgOk.Type(), msgOk.Size())
+	log.Printf("Registration succeeded: Got Ok from server, %d total bytes\n\n", okMsg.Size())
 
-	var strMsg msgs.Message
 	scan := bufio.NewScanner(os.Stdin)
 	fmt.Print(">>> ")
 
@@ -134,13 +129,13 @@ func main() {
 			continue
 		}
 
-		strMsg = msgs.String(input)
-		if err = enc.Encode(&strMsg); err != nil {
-			log.Println(err)
-			return
-		}
-		log.Println("Buffered", strMsg.Size(), "bytes")
-		err = rw.Flush()
+		sendMsg = msgs.String(input)
+		err := client.Send(sendMsg)
+		/*
+			log.Printf("[INFO] (Before) Sending message of %d bytes, %d bytes sitting in buffer\n", sendMsg.Size(), n)
+			n, err := client.SendN(sendMsg)
+			log.Printf("[INFO] (After) Sending message of %d bytes, %d bytes sitting in buffer\n", sendMsg.Size(), n)
+		*/
 		if err != nil {
 			log.Println(err)
 			return
