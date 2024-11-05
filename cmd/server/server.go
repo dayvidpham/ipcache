@@ -5,10 +5,13 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/gob"
 	"errors"
 	"io"
 	"log"
 	"os"
+
+	"github.com/dayvidpham/ipcache/internal/msgs"
 	//"database/sql"
 	//"github.com/mattn/go-sqlite3"
 )
@@ -16,7 +19,6 @@ import (
 func main() {
 	// Referencing https://gist.github.com/denji/12b3a568f092ab951456
 	log.SetFlags(log.Lshortfile)
-	log.Println("Hello, World!")
 
 	// From https://smallstep.com/hello-mtls/doc/combined/go/go
 	caCert, _ := os.ReadFile("certs/self.pem")
@@ -47,6 +49,7 @@ func main() {
 			cert := certs[0]
 
 			pubkey := base64.StdEncoding.EncodeToString(cert.SubjectKeyId)
+
 			_, ok := cache[pubkey]
 			if !ok {
 				cache[pubkey] = true
@@ -80,16 +83,16 @@ func main() {
 
 		go TlsServe(conn)
 	}
-
 }
 
 func TlsServe(conn *tls.Conn) {
 	defer conn.Close()
 
 	// NOTE: The TLS handshake is normally performed lazily, but do eagerly to fail fast
-	err := conn.Handshake()
-	if err != nil {
-		log.Println("[ERROR] Failed TLS handshake.\n\t- Reason:", err)
+	var err error
+
+	if err = conn.Handshake(); err != nil {
+		log.Println("[ERROR] Failed TLS handshake for", conn.RemoteAddr().String(), ".\n\t- Reason:", err)
 		return
 	}
 	log.Println("[INFO] TLS handshake succeeded!")
@@ -100,6 +103,19 @@ func TlsServe(conn *tls.Conn) {
 
 	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
 	rw := bufio.NewReadWriter(r, w)
+	enc, dec := gob.NewEncoder(rw), gob.NewDecoder(rw)
+
+	_, err = msgs.Decode(dec)
+	if err != nil {
+		log.Println(err)
+		return
+	}
+
+	if err = msgs.Encode(enc, msgs.Ok()); err != nil {
+		log.Println(err)
+		return
+	}
+	rw.Flush()
 
 	n, err := rw.Write([]byte("Hello from server\n"))
 	log.Println("Buffered", n, "bytes")
@@ -108,8 +124,7 @@ func TlsServe(conn *tls.Conn) {
 		return
 	}
 
-	err = rw.Flush()
-	if err != nil {
+	if err = rw.Flush(); err != nil {
 		log.Println("\tGot error:", err)
 		return
 	}
@@ -126,7 +141,21 @@ func TlsServe(conn *tls.Conn) {
 			log.Println("Call to ReadString failed\n\t- Reason:", err)
 			return
 		}
-		log.Print("Received from client: ", msg)
+		id, err := msgs.ConnId(conn)
+		log.Print("Received from client: ", msg, "\t", id, "\n\n")
+		if err != nil {
+			log.Println(err)
+			return
+		}
 	}
+}
+
+func ClientRegisterHandler(enc *gob.Encoder, dec *gob.Decoder, client msgs.Client) {
+	registerMsg, err := msgs.Decode(dec)
+	if err != nil {
+		return
+	}
+
+	log.Println("[INFO] Received msgs.ClientRegister from", registerMsg)
 
 }

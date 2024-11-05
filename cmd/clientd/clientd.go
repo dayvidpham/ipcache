@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/gob"
 	"flag"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+
+	"github.com/dayvidpham/ipcache/internal/msgs"
 )
 
 //////////////////////////////////////////////////////////////
@@ -57,7 +60,7 @@ func main() {
 	// NOTE: Want some data type binding (var, flagname, Flag) for convenience error-checking
 	// Could also maybe use the Visitor for error-checking?
 	if flag.NFlag() < nflagsRequired {
-		log.Fatalf("[FATAL] Require at least %d flags to be set, but were only given %d\n", nflagsRequired, flag.NFlag())
+		log.Panicf("[FATAL] Require at least %d flags to be set, but were only given %d\n", nflagsRequired, flag.NFlag())
 	}
 
 	parsedServerAddr := fmt.Sprintf("%s:%d", parsedServer, parsedPort)
@@ -95,20 +98,30 @@ func main() {
 	}
 	defer conn.Close()
 
+	///////////////////////////////
+	// Handle responses from server
+	// Referencing https://gist.github.com/denji/12b3a568f092ab951456
+	///////////////////////////////
+
 	r, w := bufio.NewReader(conn), bufio.NewWriter(conn)
 	rw := bufio.NewReadWriter(r, w)
-	n, err := rw.Write([]byte("Hello from Client\n"))
-	if err != nil {
-		log.Println(n, err)
-		return
-	}
+	enc, dec := gob.NewEncoder(rw), gob.NewDecoder(rw)
 
-	str, err := rw.ReadString('\n')
+	//n, err := rw.Write([]byte("Hello from Client\n"))
+	msgreg := msgs.ClientRegister()
+	err = enc.Encode(&msgreg)
 	if err != nil {
-		log.Println(n, err)
+		log.Panicln("[FATAL]: Failed to encode ClientRegisterMessage\n\t- Reason:", err)
+	}
+	rw.Flush()
+
+	var msgOk msgs.Message
+	err = dec.Decode(&msgOk)
+	if err != nil {
+		log.Println(err)
 		return
 	}
-	log.Println("Received from server:", str)
+	log.Println("[INFO] Received from server", msgOk)
 
 	scan := bufio.NewScanner(os.Stdin)
 	fmt.Print(">>> ")
