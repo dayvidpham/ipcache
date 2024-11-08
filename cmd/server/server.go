@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"os"
+	"time"
 
 	"github.com/dayvidpham/ipcache/internal/msgs"
 	//"database/sql"
@@ -89,10 +90,17 @@ func TlsServe(conn *tls.Conn) {
 	defer conn.Close()
 
 	var (
-		err    error
-		client msgs.Client
-		msg    msgs.Message
+		err     error
+		client  msgs.Client
+		recvMsg msgs.Message
 	)
+
+	// TLS timeout
+	err = conn.SetDeadline(time.Now().Add(time.Second * 3))
+	if err != nil {
+		log.Println("[ERROR] Failed to set a deadline for this tls.Conn, rejecting conn\n\t", err)
+		return
+	}
 
 	// NOTE: The TLS handshake is normally performed lazily, but do eagerly to fail fast
 	if err = conn.Handshake(); err != nil {
@@ -105,6 +113,7 @@ func TlsServe(conn *tls.Conn) {
 		return
 	}
 	log.Println("[INFO] TLS handshake succeeded!")
+	conn.SetDeadline(time.Time{})
 
 	// NOTE: Need some kind of session identifier next???
 	// Side-effect from VerifyConnection to tell us client's SubjectKeyId/pubkey/session?
@@ -112,21 +121,16 @@ func TlsServe(conn *tls.Conn) {
 
 	server := msgs.NewMessenger(conn)
 
-	if err = server.Send(msgs.Ok()); err != nil {
-		log.Println(err)
-		return
-	}
-
-	sendMsg := msgs.String("Hello from server\n")
-	n, err := server.SendN(sendMsg)
-	log.Printf("[INFO] Sending message of %d bytes, %d bytes sitting in buffer\n", sendMsg.Size(), n)
-	if err != nil {
-		log.Println(err)
-		return
-	}
+	//sendMsg := msgs.String("Hello from server\n")
+	//n, err := server.SendN(sendMsg)
+	//log.Printf("[INFO] Sending message of %d bytes, %d bytes sitting in buffer\n", sendMsg.Size(), n)
+	//if err != nil {
+	//	log.Println(err)
+	//	return
+	//}
 
 	for {
-		msg, err = server.Receive()
+		recvMsg, err = server.Receive()
 		switch err {
 		case nil:
 			break
@@ -139,13 +143,13 @@ func TlsServe(conn *tls.Conn) {
 		}
 
 		err = nil
-		switch msg.Type() {
+		switch recvMsg.Type() {
 		case msgs.T_ClientRegister:
-			ClientRegisterHandler(msg, client)
+			err = ClientRegisterHandler(server, recvMsg, client)
 		case msgs.T_String:
-			StringMessageHandler(msg, client)
+			StringMessageHandler(recvMsg, client)
 		default:
-			err = fmt.Errorf("[ERROR] Unimplemented message type:\n\t%s\n", msg.Type())
+			err = fmt.Errorf("[ERROR] Unimplemented message type:\n\t%s\n", recvMsg.Type())
 		}
 		if err != nil {
 			log.Println(err)
@@ -154,9 +158,20 @@ func TlsServe(conn *tls.Conn) {
 	}
 }
 
-func StringMessageHandler(msg msgs.Message, client msgs.Client) {
-	log.Printf("Received from %+v: %s\n\tPayload: %s\n", client, msg.Type(), msg.Payload())
+func StringMessageHandler(recvMsg msgs.Message, client msgs.Client) {
+	log.Printf("Received from %+v: %s\n\tPayload: %s\n", client, recvMsg.Type(), recvMsg.Payload())
 }
-func ClientRegisterHandler(msg msgs.Message, client msgs.Client) {
-	log.Printf("Received from %+v: %s\n", client, msg.Type())
+func ClientRegisterHandler(server msgs.Messenger, recvMsg msgs.Message, client msgs.Client) (err error) {
+	log.Printf("Received from %+v: %s\n\tResponding with Ok ...\n", client, recvMsg.Type())
+	if err = server.Send(msgs.Ok()); err != nil {
+		return fmt.Errorf("[ERROR] Failed to Send Ok\n\t%w\n", err)
+	}
+	log.Println("\tSent Ok!")
+
+	err = server.SetReadTimeout(time.Second * 20)
+	if err != nil {
+		return fmt.Errorf("[ERROR] Failed during SetReadTimeout\n\t%w\n", err)
+	}
+
+	return err
 }

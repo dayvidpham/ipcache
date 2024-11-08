@@ -203,6 +203,14 @@ type Messenger interface {
 	Send(msg Message) (err error)
 	SendN(msg Message) (n int, err error)
 	Receive() (msg Message, err error)
+
+	//SetDeadline(deadline time.Time) (err error)
+	//SetReadDeadline(deadline time.Time) (err error)
+	//SetWriteDeadline(deadline time.Time) (err error)
+
+	//SetTimeout(timeout time.Duration) (err error)
+	SetReadTimeout(timeout time.Duration) (err error)
+	//SetWriteTimeout(timeout time.Duration) (err error)
 }
 
 type blockingMessenger struct {
@@ -241,6 +249,11 @@ func (bm *blockingMessenger) Receive() (msg Message, err error) {
 		return msg, fmt.Errorf("[ERROR] Messenger failed during Receive\n\t%w\n", err)
 	}
 	return
+}
+
+func (bm *blockingMessenger) SetReadTimeout(timeout time.Duration) (err error) {
+	err = bm.conn.SetReadDeadline(time.Now().Add(timeout))
+	return err
 }
 
 func NewMessenger(conn *tls.Conn) Messenger {
