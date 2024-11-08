@@ -32,6 +32,7 @@ func main() {
 	// BUG: Will need to synchronize for concurrent r/w
 	// mutex: sync.RWLock
 	// atomic CAS: atomics
+	// sync.Map
 	cache := make(map[string]bool)
 	config := &tls.Config{
 		MinVersion:   tls.VersionTLS13,
