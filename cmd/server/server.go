@@ -148,6 +148,9 @@ func TlsServe(conn *tls.Conn) {
 			err = ClientRegisterHandler(server, recvMsg, client)
 		case msgs.T_String:
 			StringMessageHandler(recvMsg, client)
+		case msgs.T_Ping:
+			log.Printf("[INFO] Received from %+v: %s\n\tAttempt to SetReadTimeout().\n\n", client, recvMsg.Type())
+			err = server.SetReadTimeout(time.Second * 20)
 		default:
 			err = fmt.Errorf("[ERROR] Unimplemented message type:\n\t%s\n", recvMsg.Type())
 		}
@@ -166,7 +169,7 @@ func ClientRegisterHandler(server msgs.Messenger, recvMsg msgs.Message, client m
 	if err = server.Send(msgs.Ok()); err != nil {
 		return fmt.Errorf("[ERROR] Failed to Send Ok\n\t%w\n", err)
 	}
-	log.Println("\tSent Ok!")
+	log.Println("\t[INFO] Sent Ok. Proceeding to SetReadTimeout.")
 
 	err = server.SetReadTimeout(time.Second * 20)
 	if err != nil {

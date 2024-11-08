@@ -1,14 +1,13 @@
 package main
 
 import (
-	"bufio"
 	"crypto/tls"
 	"crypto/x509"
 	"flag"
 	"fmt"
 	"log"
 	"os"
-	"strings"
+	"time"
 
 	"github.com/dayvidpham/ipcache/internal/msgs"
 )
@@ -119,17 +118,9 @@ func main() {
 	}
 	log.Printf("Registration succeeded: Got Ok from server, %d total bytes\n\n", okMsg.Size())
 
-	scan := bufio.NewScanner(os.Stdin)
-	fmt.Print(">>> ")
-
-	for scan.Scan() {
-		input := strings.TrimSpace(scan.Text()) + "\n"
-		if len(input) == 1 {
-			fmt.Print(">>> ")
-			continue
-		}
-
-		sendMsg = msgs.String(input)
+	for {
+		client.SetWriteTimeout(time.Second * 10)
+		sendMsg = msgs.Ping()
 		err := client.Send(sendMsg)
 		/*
 			log.Printf("[INFO] (Before) Sending message of %d bytes, %d bytes sitting in buffer\n", sendMsg.Size(), n)
@@ -140,9 +131,8 @@ func main() {
 			log.Println(err)
 			return
 		}
-
-		fmt.Print(">>> ")
-
+		log.Println("Sent Ping to server. Sleeping for 5 seconds.")
+		time.Sleep(time.Second * 5)
 	}
 
 }
