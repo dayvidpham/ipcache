@@ -253,27 +253,45 @@ func (bm *blockingMessenger) Receive() (msg Message, err error) {
 
 func (bm *blockingMessenger) SetReadTimeout(timeout time.Duration) (err error) {
 	err = bm.conn.SetReadDeadline(time.Now().Add(timeout))
+	if err != nil {
+		return fmt.Errorf("[ERROR] Failed to set read timeout of %s\n\t%w\n", timeout.String(), err)
+	}
 	return err
 }
 func (bm *blockingMessenger) SetWriteTimeout(timeout time.Duration) (err error) {
 	err = bm.conn.SetWriteDeadline(time.Now().Add(timeout))
+	if err != nil {
+		return fmt.Errorf("[ERROR] Failed to set write timeout of %s\n\t%w\n", timeout.String(), err)
+	}
 	return err
 }
 func (bm *blockingMessenger) SetTimeout(timeout time.Duration) (err error) {
 	err = bm.conn.SetDeadline(time.Now().Add(timeout))
+	if err != nil {
+		return fmt.Errorf("[ERROR] Failed to set timeout of %s\n\t%w\n", timeout.String(), err)
+	}
 	return err
 }
 
 func (bm *blockingMessenger) SetReadDeadline(deadline time.Time) (err error) {
 	err = bm.conn.SetReadDeadline(deadline)
+	if err != nil {
+		return fmt.Errorf("[ERROR] Failed to set read deadline of %s\n\t%w\n", deadline.String(), err)
+	}
 	return err
 }
 func (bm *blockingMessenger) SetWriteDeadline(deadline time.Time) (err error) {
 	err = bm.conn.SetWriteDeadline(deadline)
+	if err != nil {
+		return fmt.Errorf("[ERROR] Failed to set write deadline of %s\n\t%w\n", deadline.String(), err)
+	}
 	return err
 }
 func (bm *blockingMessenger) SetDeadline(deadline time.Time) (err error) {
 	err = bm.conn.SetDeadline(deadline)
+	if err != nil {
+		return fmt.Errorf("[ERROR] Failed to set deadline of %s\n\t%w\n", deadline.String(), err)
+	}
 	return err
 }
 
