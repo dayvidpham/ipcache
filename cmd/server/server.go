@@ -5,20 +5,43 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"flag"
 	"fmt"
+	"github.com/dayvidpham/ipcache/internal/msgs"
 	"io"
 	"log"
 	"os"
 	"time"
-
-	"github.com/dayvidpham/ipcache/internal/msgs"
 	//"database/sql"
 	//"github.com/mattn/go-sqlite3"
 )
 
+var (
+	parsedTlsHandshakeTimeoutSeconds uint
+	parsedPingTimeoutSeconds         uint
+
+	tlsHandshakeTimeout time.Duration
+	pingTimeout         time.Duration
+)
+
+func init() {
+	flag.UintVar(&parsedTlsHandshakeTimeoutSeconds, "tls-handshake-timeout-seconds", 5, "max time to complete TLS handshake before server kills connection")
+	flag.UintVar(&parsedPingTimeoutSeconds, "ping-timeout-seconds", 60*10, "max time between pings to server for daemons, before server kills connection")
+}
+
 func main() {
 	// Referencing https://gist.github.com/denji/12b3a568f092ab951456
 	log.SetFlags(log.Lshortfile)
+
+	///////////////////////////////
+	// Proccess flags
+	///////////////////////////////
+	flag.Parse()
+	log.Println("[DEBUG] --tls-handshake-timeout-seconds", parsedTlsHandshakeTimeoutSeconds)
+	log.Println("[DEBUG] --ping-timeout-seconds", parsedPingTimeoutSeconds)
+
+	pingTimeout = time.Second * time.Duration(parsedPingTimeoutSeconds)
+	tlsHandshakeTimeout = time.Second * time.Duration(parsedTlsHandshakeTimeoutSeconds)
 
 	// From https://smallstep.com/hello-mtls/doc/combined/go/go
 	caCert, _ := os.ReadFile("certs/self.pem")
@@ -80,7 +103,7 @@ func main() {
 			netconn.Close()
 			continue
 		}
-		log.Println("[INFO] New tls.Conn established with", conn.RemoteAddr().String(), ", still need to do TLS handshake")
+		log.Println("[INFO] New tls.Conn established with", conn.RemoteAddr(), ", still need to do TLS handshake")
 
 		go TlsServe(conn)
 	}
@@ -96,15 +119,15 @@ func TlsServe(conn *tls.Conn) {
 	)
 
 	// TLS timeout
-	err = conn.SetDeadline(time.Now().Add(time.Second * 3))
+	err = conn.SetDeadline(time.Now().Add(tlsHandshakeTimeout))
 	if err != nil {
-		log.Println("[ERROR] Failed to set a deadline for this tls.Conn, rejecting conn\n\t", err)
+		log.Println("[ERROR] Failed to set a deadline for this tls.Conn, rejecting conn\n\t-", err)
 		return
 	}
 
 	// NOTE: The TLS handshake is normally performed lazily, but do eagerly to fail fast
 	if err = conn.Handshake(); err != nil {
-		log.Println("[ERROR] Failed TLS handshake for", conn.RemoteAddr().String(), ".\n\t- Reason:", err)
+		log.Println("[ERROR] Failed TLS handshake for", conn.RemoteAddr(), ".\n\t- Reason:", err)
 		return
 	}
 
@@ -113,7 +136,12 @@ func TlsServe(conn *tls.Conn) {
 		return
 	}
 	log.Println("[INFO] TLS handshake succeeded!")
-	conn.SetDeadline(time.Time{})
+
+	err = conn.SetDeadline(time.Time{})
+	if err != nil {
+		log.Println("[ERROR] Failed to unset deadline.\n\t-", err)
+		return
+	}
 
 	// NOTE: Need some kind of session identifier next???
 	// Side-effect from VerifyConnection to tell us client's SubjectKeyId/pubkey/session?
@@ -142,17 +170,18 @@ func TlsServe(conn *tls.Conn) {
 			return
 		}
 
+		log.Printf("Received from %+v: %s\n", client, recvMsg.Type())
+
 		err = nil
 		switch recvMsg.Type() {
-		case msgs.T_ClientRegister:
-			err = ClientRegisterHandler(server, recvMsg, client)
 		case msgs.T_String:
-			StringMessageHandler(recvMsg, client)
+			StringMessageHandler(recvMsg)
+		case msgs.T_ClientRegister:
+			err = ClientRegisterHandler(server, pingTimeout)
 		case msgs.T_Ping:
-			log.Printf("[INFO] Received from %+v: %s\n\tAttempt to SetReadTimeout().\n\n", client, recvMsg.Type())
-			err = server.SetReadTimeout(time.Second * 20)
+			err = PingHandler(server, pingTimeout)
 		default:
-			err = fmt.Errorf("[ERROR] Unimplemented message type:\n\t%s\n", recvMsg.Type())
+			err = fmt.Errorf("[ERROR] Unimplemented message type:\n\t- %s\n", recvMsg.Type())
 		}
 		if err != nil {
 			log.Println(err)
@@ -161,20 +190,28 @@ func TlsServe(conn *tls.Conn) {
 	}
 }
 
-func StringMessageHandler(recvMsg msgs.Message, client msgs.Client) {
-	log.Printf("Received from %+v: %s\n\tPayload: %s\n", client, recvMsg.Type(), recvMsg.Payload())
+func StringMessageHandler(recvMsg msgs.Message) {
+	log.Printf("\t- Payload: %s\n", recvMsg.Payload())
 }
-func ClientRegisterHandler(server msgs.Messenger, recvMsg msgs.Message, client msgs.Client) (err error) {
-	log.Printf("Received from %+v: %s\n\tResponding with Ok ...\n", client, recvMsg.Type())
-	if err = server.Send(msgs.Ok()); err != nil {
-		return fmt.Errorf("[ERROR] Failed to Send Ok\n\t%w\n", err)
-	}
-	log.Println("\t[INFO] Sent Ok. Proceeding to SetReadTimeout.")
 
-	err = server.SetReadTimeout(time.Second * 20)
+func ClientRegisterHandler(server msgs.Messenger, pingTimeout time.Duration) (err error) {
+	log.Printf("\t- Responding with ping timeout as String(%v) ...\n", pingTimeout)
+
+	timeoutMsg := msgs.String(pingTimeout.String())
+	if err = server.Send(timeoutMsg); err != nil {
+		return err
+	}
+	log.Printf("\t- Sent response. Resetting SetReadTimeout(%v).\n\n", pingTimeout)
+
+	err = server.SetReadTimeout(pingTimeout)
 	if err != nil {
-		return fmt.Errorf("[ERROR] Failed during SetReadTimeout\n\t%w\n", err)
+		return err
 	}
+	return
+}
 
+func PingHandler(server msgs.Messenger, pingTimeout time.Duration) (err error) {
+	log.Printf("\t- Resetting SetReadTimeout(%v).\n\n", pingTimeout)
+	err = server.SetReadTimeout(pingTimeout)
 	return err
 }

@@ -27,12 +27,22 @@ import (
  * --server root CAs
  */
 
-var parsedServer string
-var parsedPort uint
-var parsedCertPath string
-var parsedPrivatekeyPath string
-var parsedServerRootCACert string
-var nflagsRequired int = 5
+var (
+	parsedServer                 string
+	parsedPort                   uint
+	parsedCertPath               string
+	parsedPrivatekeyPath         string
+	parsedServerRootCACert       string
+	parsedRegisterTimeoutSeconds uint
+	nflagsRequired               int = 5
+
+	registerTimeout time.Duration
+)
+
+var (
+	pingTimeout   time.Duration
+	sleepDuration time.Duration
+)
 
 func init() {
 	flag.StringVar(&parsedServer, "server", "", "server to connect to; examples <ipcache.com | 192.168.0.1> ")
@@ -40,6 +50,7 @@ func init() {
 	flag.StringVar(&parsedCertPath, "cert", "", "path to your certificate")
 	flag.StringVar(&parsedPrivatekeyPath, "privatekey", "", "path to your private key that was used to sign your certificate")
 	flag.StringVar(&parsedServerRootCACert, "server-root-ca-cert", "", "path to the expected server root CA certificate, used for verification")
+	flag.UintVar(&parsedRegisterTimeoutSeconds, "register-timeout-seconds", 10, "max time to wait for server to respond to ClientRegister message before killing the connection")
 }
 
 func main() {
@@ -54,6 +65,7 @@ func main() {
 	log.Println("[DEBUG] --cert", parsedCertPath)
 	log.Println("[DEBUG] --privatekey", parsedPrivatekeyPath)
 	log.Println("[DEBUG] --server-root-ca-cert", parsedServerRootCACert)
+	log.Println("[DEBUG] --register-timeout-seconds", parsedRegisterTimeoutSeconds)
 
 	// NOTE: Want some data type binding (var, flagname, Flag) for convenience error-checking
 	// Could also maybe use the Visitor for error-checking?
@@ -62,6 +74,7 @@ func main() {
 	}
 
 	parsedServerAddr := fmt.Sprintf("%s:%d", parsedServer, parsedPort)
+	registerTimeout = time.Second * time.Duration(parsedRegisterTimeoutSeconds)
 
 	///////////////////////////////
 	// Main client daemon program
@@ -103,36 +116,68 @@ func main() {
 
 	client := msgs.NewMessenger(conn)
 
+	/*
+		Register with server, kill connection if server response takes too long
+		Should receive the expected ping timeout from the server as a response
+	*/
 	sendMsg := msgs.ClientRegister()
-	n, err := client.SendN(sendMsg)
-	log.Printf("[INFO] Sending message of %d bytes, %d bytes sitting in buffer", sendMsg.Size(), n)
+	err = client.Send(sendMsg)
+	log.Printf("Sending ClientRegister message\n")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	client.SetReadTimeout(registerTimeout)
+
+	timeoutMsg, err := client.Receive()
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	if timeoutMsg.Type() != msgs.T_String {
+		log.Printf("[FATAL] Expected the server to respond with MessageType String, but got %s.\n", timeoutMsg.Type())
+	}
+
+	log.Printf(
+		"Registration succeeded.\n\t- Got ping timeout from server, %d total bytes\n\t- Ping timeout: %s\n\n",
+		timeoutMsg.Size(),
+		timeoutMsg.Payload())
+
+	// Unset the register timeout
+	err = client.SetReadDeadline(time.Time{})
 	if err != nil {
 		log.Println(err)
 		return
 	}
 
-	okMsg, err := client.Receive()
+	pingTimeout, err = time.ParseDuration(string(timeoutMsg.Payload()))
 	if err != nil {
-		log.Println(err)
+		log.Printf("[FATAL] Failed to parse server's response payload as a time.Duration.\n\t- Received: %s\n", timeoutMsg.Payload())
 		return
 	}
-	log.Printf("Registration succeeded: Got Ok from server, %d total bytes\n\n", okMsg.Size())
+	sleepDuration = time.Duration((pingTimeout * 3) / 4)
+	log.Printf(
+		"[INFO] Calculated ping interval as timeout * 3/4\n\t- (%s) * 3/4 = %s\n\n",
+		pingTimeout,
+		sleepDuration)
+	// Registration complete
 
 	for {
-		client.SetWriteTimeout(time.Second * 10)
-		sendMsg = msgs.Ping()
-		err := client.Send(sendMsg)
-		/*
-			log.Printf("[INFO] (Before) Sending message of %d bytes, %d bytes sitting in buffer\n", sendMsg.Size(), n)
-			n, err := client.SendN(sendMsg)
-			log.Printf("[INFO] (After) Sending message of %d bytes, %d bytes sitting in buffer\n", sendMsg.Size(), n)
-		*/
+		err = client.SetWriteTimeout(pingTimeout)
 		if err != nil {
 			log.Println(err)
 			return
 		}
-		log.Println("Sent Ping to server. Sleeping for 5 seconds.")
-		time.Sleep(time.Second * 5)
+		sendMsg = msgs.Ping()
+
+		err := client.Send(sendMsg)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		log.Printf("Sent Ping to server. Sleeping for %v seconds.\n", sleepDuration)
+		time.Sleep(sleepDuration)
 	}
 
 }
