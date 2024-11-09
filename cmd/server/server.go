@@ -121,25 +121,23 @@ func TlsServe(conn *tls.Conn) {
 	// TLS timeout
 	err = conn.SetDeadline(time.Now().Add(tlsHandshakeTimeout))
 	if err != nil {
-		log.Println("[ERROR] Failed to set a deadline for this tls.Conn, rejecting conn\n\t-", err)
+		log.Println("[ERROR] Failed to set a timeout for TLS handshake, rejecting conn.\n\t-", err)
 		return
 	}
-
 	// NOTE: The TLS handshake is normally performed lazily, but do eagerly to fail fast
 	if err = conn.Handshake(); err != nil {
 		log.Println("[ERROR] Failed TLS handshake for", conn.RemoteAddr(), ".\n\t- Reason:", err)
 		return
 	}
-
-	if client, err = msgs.NewClient(conn); err != nil {
-		log.Println(err)
+	// Unset TLS timeout
+	if err = conn.SetDeadline(time.Time{}); err != nil {
+		log.Println("[ERROR] Failed to unset timeout for TLS handshake.\n\t-", err)
 		return
 	}
 	log.Println("[INFO] TLS handshake succeeded!")
 
-	err = conn.SetDeadline(time.Time{})
-	if err != nil {
-		log.Println("[ERROR] Failed to unset deadline.\n\t-", err)
+	if client, err = msgs.NewClient(conn); err != nil {
+		log.Println(err)
 		return
 	}
 
@@ -176,13 +174,21 @@ func TlsServe(conn *tls.Conn) {
 		switch recvMsg.Type() {
 		case msgs.T_String:
 			StringMessageHandler(recvMsg)
+
 		case msgs.T_ClientRegister:
+			// On register:
+			// - [x] respond with server's ping timeout interval
+			// - [ ] store IP in DB
+			//   - [ ] handle logic if IP already in
+			//   - [ ] handle logic if IP in and different
 			err = ClientRegisterHandler(server, pingTimeout)
 		case msgs.T_Ping:
 			err = PingHandler(server, pingTimeout)
+
 		default:
 			err = fmt.Errorf("[ERROR] Unimplemented message type:\n\t- %s\n", recvMsg.Type())
 		}
+
 		if err != nil {
 			log.Println(err)
 			return
