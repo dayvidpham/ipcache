@@ -73,36 +73,6 @@ func main() {
 		return
 	}
 
-	var rows *sql.Rows
-	if rows, err = db.Query(
-		`SELECT
-			*
-		FROM
-			AuthorizationType;`); err != nil {
-		log.Println(err)
-		return
-	}
-
-	defer rows.Close()
-	for rows.Next() {
-		var (
-			c1 int
-			c2 string
-		)
-
-		err = rows.Scan(&c1, &c2)
-		if err != nil {
-			log.Println(err)
-			return
-		}
-		log.Println(c1, c2)
-	}
-
-	if err = rows.Err(); err != nil {
-		log.Println(err)
-		return
-	}
-
 	///////////////////////////////
 	// Read in certificates, CA bundles
 	// Referencing https://smallstep.com/hello-mtls/doc/combined/go/go
@@ -235,10 +205,10 @@ func TlsServe(conn *tls.Conn) {
 			return
 		}
 
-		log.Printf("Received from %+v: %s\n", client, recvMsg.Type())
+		log.Printf("Received from %+v: %s\n", client, recvMsg.Type)
 
 		err = nil
-		switch recvMsg.Type() {
+		switch recvMsg.Type {
 		case msgs.T_String:
 			StringMessageHandler(recvMsg)
 
@@ -253,7 +223,7 @@ func TlsServe(conn *tls.Conn) {
 			err = PingHandler(server, pingTimeout)
 
 		default:
-			err = fmt.Errorf("[ERROR] Unimplemented message type:\n\t- %s\n", recvMsg.Type())
+			err = fmt.Errorf("[ERROR] Unimplemented message type:\n\t- %s\n", recvMsg.Type)
 		}
 
 		if err != nil {
@@ -264,7 +234,7 @@ func TlsServe(conn *tls.Conn) {
 }
 
 func StringMessageHandler(recvMsg msgs.Message) {
-	log.Printf("\t- Payload: %s\n", recvMsg.Payload())
+	log.Printf("\t- Payload: %s\n", recvMsg.Payload)
 }
 
 func ClientRegisterHandler(server msgs.Messenger, pingTimeout time.Duration) (err error) {

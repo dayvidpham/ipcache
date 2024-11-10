@@ -134,14 +134,14 @@ func main() {
 		log.Println(err)
 		return
 	}
-	if timeoutMsg.Type() != msgs.T_String {
-		log.Printf("[FATAL] Expected the server to respond with MessageType String, but got %s.\n", timeoutMsg.Type())
+	if timeoutMsg.Type != msgs.T_String {
+		log.Printf("[FATAL] Expected the server to respond with MessageType String, but got %s.\n", timeoutMsg.Type)
 	}
 
 	log.Printf(
 		"Registration succeeded.\n\t- Got ping timeout from server, %d total bytes\n\t- Ping timeout: %s\n\n",
 		timeoutMsg.Size(),
-		timeoutMsg.Payload())
+		timeoutMsg.Payload)
 
 	// Unset the register timeout
 	err = client.SetReadDeadline(time.Time{})
@@ -150,9 +150,9 @@ func main() {
 		return
 	}
 
-	pingTimeout, err = time.ParseDuration(string(timeoutMsg.Payload()))
+	pingTimeout, err = time.ParseDuration(string(timeoutMsg.Payload))
 	if err != nil {
-		log.Printf("[FATAL] Failed to parse server's response payload as a time.Duration.\n\t- Received: %s\n", timeoutMsg.Payload())
+		log.Printf("[FATAL] Failed to parse server's response payload as a time.Duration.\n\t- Received: %s\n", timeoutMsg.Payload)
 		return
 	}
 	sleepDuration = time.Duration((pingTimeout * 3) / 4)

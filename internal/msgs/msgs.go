@@ -56,49 +56,28 @@ func (mt MessageType) String() string {
 
 var DefaultVersion ProtocolVersion = Version_1_0_0
 
-type Message interface {
-	Type() MessageType
-	Version() ProtocolVersion
-	UnixTimestampUTC() int64
-	Size() int
-	Payload() []byte
+type Message struct {
+	Type             MessageType
+	Version          ProtocolVersion
+	UnixTimestampUtc int64
+	Payload          []byte
 }
 
-type message struct {
-	MsgType          MessageType
-	VersionAt        ProtocolVersion
-	CreatedAtUnixUTC int64
-	Data             []byte
-}
+var emptyMsg Message
+var msgStaticSize int = binary.Size(emptyMsg.Type) +
+	binary.Size(emptyMsg.Version) +
+	binary.Size(emptyMsg.UnixTimestampUtc)
 
-func (m *message) Type() MessageType {
-	return m.MsgType
-}
-func (m *message) UnixTimestampUTC() int64 {
-	return m.CreatedAtUnixUTC
-}
-func (m *message) Version() ProtocolVersion {
-	return m.VersionAt
-}
-func (m *message) Payload() []byte {
-	return m.Data
-}
-
-var emptyMsg message
-var msgStaticSize int = binary.Size(emptyMsg.MsgType) +
-	binary.Size(emptyMsg.VersionAt) +
-	binary.Size(emptyMsg.CreatedAtUnixUTC)
-
-func (m *message) Size() int {
-	return msgStaticSize + binary.Size(m.Data)
+func (m *Message) Size() int {
+	return msgStaticSize + binary.Size(m.Payload)
 }
 
 func NewMessage(msgT MessageType) Message {
-	return &message{
-		MsgType:          msgT,
-		VersionAt:        DefaultVersion,
-		CreatedAtUnixUTC: time.Now().UTC().Unix(),
-		Data:             nil,
+	return Message{
+		Type:             msgT,
+		Version:          DefaultVersion,
+		UnixTimestampUtc: time.Now().UTC().Unix(),
+		Payload:          nil,
 	}
 }
 
@@ -127,8 +106,8 @@ func ClientRegister() Message {
 }
 
 func String(data string) Message {
-	msg := NewMessage(T_String).(*message)
-	msg.Data = []byte(data)
+	msg := NewMessage(T_String)
+	msg.Payload = []byte(data)
 	return msg
 }
 
@@ -193,10 +172,6 @@ func NewClient(conn *tls.Conn) (client Client, err error) {
 		return client, err
 	}
 	return Client{Id: skid, IP: ip}, err
-}
-
-func init() {
-	gob.Register(&message{})
 }
 
 type Messenger interface {
