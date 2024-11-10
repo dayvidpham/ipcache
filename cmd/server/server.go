@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
@@ -25,8 +26,8 @@ var (
 	pingTimeout         time.Duration
 )
 
-func initDb(db *sql.DB) (err error) {
-	result, err := db.Exec(
+func initDb(ctx context.Context, db *sql.DB) (err error) {
+	_, err = db.Exec(
 		`CREATE TABLE IF NOT EXISTS
 			Registrar(
 				skid    TEXT NOT NULL COLLATE BINARY,
@@ -39,22 +40,67 @@ func initDb(db *sql.DB) (err error) {
 	if err != nil {
 		return err
 	}
-	log.Println(result)
 
-	result, err = db.Exec(
-		`CREATE TABLE IF NOT EXISTS
-			AuthorizationType(
-				type INTEGER NOT NULL,
-				desc TEXT NOT NULL,
-				PRIMARY KEY(type ASC)
+	// Check if Enum-style table exists, else create and insert values into it
+	row := db.QueryRow(
+		`SELECT EXISTS(
+				SELECT
+					name
+				FROM
+					main.sqlite_schema
+				WHERE
+					name = 'AuthorizationType'
 			)
 		;`)
+
+	var exists int
+	err = row.Scan(&exists)
 	if err != nil {
+		log.Println(err)
 		return err
 	}
-	log.Println(result)
 
-	result, err = db.Exec(
+	// Create table
+	if exists == 0 {
+		_, err = db.Exec(
+			`CREATE TABLE IF NOT EXISTS
+					AuthorizationType(
+						type INTEGER NOT NULL,
+						desc TEXT NOT NULL,
+						PRIMARY KEY(type ASC)
+					)
+			;`)
+		if err != nil {
+			return err
+		}
+
+		txTimeout := time.Second * 1
+		txCtx, cancel := context.WithTimeout(ctx, txTimeout)
+		defer cancel()
+
+		tx, err := db.BeginTx(txCtx, &sql.TxOptions{Isolation: sql.LevelLinearizable, ReadOnly: false})
+		if err != nil {
+			log.Println(err)
+			return err
+		}
+
+		_, err = tx.Exec(
+			`INSERT INTO 
+					'AuthorizationType' ('type', 'desc')
+				VALUES
+					(1, 'GetIP')
+			;`)
+		if err != nil {
+			rollbackErr := tx.Rollback()
+			return fmt.Errorf("%w\n\t%w", rollbackErr, err)
+		}
+
+		if err = tx.Commit(); err != nil {
+			return err
+		}
+	}
+
+	_, err = db.Exec(
 		`CREATE TABLE IF NOT EXISTS
 			AuthorizationGrants(
 				owner   TEXT     NOT NULL COLLATE BINARY,
@@ -67,7 +113,6 @@ func initDb(db *sql.DB) (err error) {
 	if err != nil {
 		return err
 	}
-	log.Println(result)
 
 	return
 }
@@ -78,7 +123,6 @@ func init() {
 }
 
 func main() {
-	// Referencing https://gist.github.com/denji/12b3a568f092ab951456
 	log.SetFlags(log.Lshortfile)
 
 	///////////////////////////////
@@ -96,6 +140,8 @@ func main() {
 	///////////////////////////////
 	sql3V, _, _ := sqlite3.Version()
 	log.Printf("[DEBUG] sqlite3 version: %v\n", sql3V)
+
+	rootCtx := context.Background()
 	db, err := sql.Open("sqlite3", "file:ipcache.db")
 	if err != nil {
 		log.Println(err)
@@ -103,19 +149,55 @@ func main() {
 	}
 	defer db.Close()
 
-	if err = db.Ping(); err != nil {
+	dbTimeout := time.Second * 3
+	pingCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
+	defer cancel()
+	if err = db.PingContext(pingCtx); err != nil {
 		log.Println(err)
 		return
 	}
 
-	if err = initDb(db); err != nil {
+	initCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
+	defer cancel()
+	if err = initDb(initCtx, db); err != nil {
+		log.Println(err)
+		return
+	}
+
+	var rows *sql.Rows
+	if rows, err = db.Query(
+		`SELECT
+			*
+		FROM
+			AuthorizationType;`); err != nil {
+		log.Println(err)
+		return
+	}
+
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			c1 int
+			c2 string
+		)
+
+		err = rows.Scan(&c1, &c2)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+		log.Println(c1, c2)
+	}
+
+	if err = rows.Err(); err != nil {
 		log.Println(err)
 		return
 	}
 
 	///////////////////////////////
 	// Read in certificates, CA bundles
-	// From https://smallstep.com/hello-mtls/doc/combined/go/go
+	// Referencing https://smallstep.com/hello-mtls/doc/combined/go/go
+	// Referencing https://gist.github.com/denji/12b3a568f092ab951456
 	///////////////////////////////
 	caCert, _ := os.ReadFile("certs/self.pem")
 	caCertPool := x509.NewCertPool()
