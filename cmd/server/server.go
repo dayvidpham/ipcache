@@ -3,17 +3,18 @@ package main
 import (
 	"crypto/tls"
 	"crypto/x509"
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"flag"
 	"fmt"
-	"github.com/dayvidpham/ipcache/internal/msgs"
 	"io"
 	"log"
 	"os"
 	"time"
-	//"database/sql"
-	//"github.com/mattn/go-sqlite3"
+
+	"github.com/dayvidpham/ipcache/internal/msgs"
+	"github.com/mattn/go-sqlite3"
 )
 
 var (
@@ -23,6 +24,53 @@ var (
 	tlsHandshakeTimeout time.Duration
 	pingTimeout         time.Duration
 )
+
+func initDb(db *sql.DB) (err error) {
+	result, err := db.Exec(
+		`CREATE TABLE IF NOT EXISTS
+			Registrar(
+				skid    TEXT NOT NULL COLLATE BINARY,
+				time    INTEGER NOT NULL,
+				ip      TEXT NOT NULL,
+				PRIMARY KEY(skid)
+			)
+			WITHOUT ROWID
+		;`)
+	if err != nil {
+		return err
+	}
+	log.Println(result)
+
+	result, err = db.Exec(
+		`CREATE TABLE IF NOT EXISTS
+			AuthorizationType(
+				type INTEGER NOT NULL,
+				desc TEXT NOT NULL,
+				PRIMARY KEY(type ASC)
+			)
+		;`)
+	if err != nil {
+		return err
+	}
+	log.Println(result)
+
+	result, err = db.Exec(
+		`CREATE TABLE IF NOT EXISTS
+			AuthorizationGrants(
+				owner   TEXT     NOT NULL COLLATE BINARY,
+				other   TEXT     NOT NULL COLLATE BINARY,
+				type    INTEGER  NOT NULL REFERENCES AuthorizationType(type),
+				PRIMARY KEY(owner, other, type)
+			)
+			WITHOUT ROWID
+		;`)
+	if err != nil {
+		return err
+	}
+	log.Println(result)
+
+	return
+}
 
 func init() {
 	flag.UintVar(&parsedTlsHandshakeTimeoutSeconds, "tls-handshake-timeout-seconds", 5, "max time to complete TLS handshake before server kills connection")
@@ -43,7 +91,32 @@ func main() {
 	pingTimeout = time.Second * time.Duration(parsedPingTimeoutSeconds)
 	tlsHandshakeTimeout = time.Second * time.Duration(parsedTlsHandshakeTimeoutSeconds)
 
+	///////////////////////////////
+	// Establish connection to SQLite3 DB
+	///////////////////////////////
+	sql3V, _, _ := sqlite3.Version()
+	log.Printf("[DEBUG] sqlite3 version: %v\n", sql3V)
+	db, err := sql.Open("sqlite3", "file:ipcache.db")
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	defer db.Close()
+
+	if err = db.Ping(); err != nil {
+		log.Println(err)
+		return
+	}
+
+	if err = initDb(db); err != nil {
+		log.Println(err)
+		return
+	}
+
+	///////////////////////////////
+	// Read in certificates, CA bundles
 	// From https://smallstep.com/hello-mtls/doc/combined/go/go
+	///////////////////////////////
 	caCert, _ := os.ReadFile("certs/self.pem")
 	caCertPool := x509.NewCertPool()
 	caCertPool.AppendCertsFromPEM(caCert)
@@ -84,6 +157,9 @@ func main() {
 		},
 	}
 
+	///////////////////////////////
+	// Start server
+	///////////////////////////////
 	ln, err := tls.Listen("tcp", "127.0.0.1:4430", config)
 	if err != nil {
 		panic(err)
