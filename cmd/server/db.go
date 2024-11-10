@@ -9,7 +9,7 @@ import (
 )
 
 func initDb(ctx context.Context, db *sql.DB) (err error) {
-	_, err = db.Exec(
+	_, err = db.ExecContext(ctx,
 		`CREATE TABLE IF NOT EXISTS
 			Registrar(
 				skid    TEXT NOT NULL COLLATE BINARY,
@@ -24,7 +24,7 @@ func initDb(ctx context.Context, db *sql.DB) (err error) {
 	}
 
 	// Check if Enum-style table exists, else create and insert values into it
-	row := db.QueryRow(
+	row := db.QueryRowContext(ctx,
 		`SELECT EXISTS(
 				SELECT
 					name
@@ -44,13 +44,13 @@ func initDb(ctx context.Context, db *sql.DB) (err error) {
 
 	// Create table
 	if exists == 0 {
-		_, err = db.Exec(
+		_, err = db.ExecContext(ctx,
 			`CREATE TABLE IF NOT EXISTS
-					AuthorizationType(
-						type INTEGER NOT NULL,
-						desc TEXT NOT NULL,
-						PRIMARY KEY(type ASC)
-					)
+				AuthorizationType(
+					type INTEGER NOT NULL,
+					desc TEXT NOT NULL,
+					PRIMARY KEY(type ASC)
+				)
 			;`)
 		if err != nil {
 			return err
@@ -66,7 +66,7 @@ func initDb(ctx context.Context, db *sql.DB) (err error) {
 			return err
 		}
 
-		_, err = tx.Exec(
+		_, err = tx.ExecContext(ctx,
 			`INSERT INTO 
 					'AuthorizationType' ('type', 'desc')
 				VALUES
@@ -82,7 +82,7 @@ func initDb(ctx context.Context, db *sql.DB) (err error) {
 		}
 	}
 
-	_, err = db.Exec(
+	_, err = db.ExecContext(ctx,
 		`CREATE TABLE IF NOT EXISTS
 			AuthorizationGrants(
 				owner   TEXT     NOT NULL COLLATE BINARY,
