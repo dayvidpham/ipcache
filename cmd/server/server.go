@@ -83,7 +83,6 @@ func main() {
 		log.Println(err)
 		return
 	}
-	defer prepInsertRegistrarStmt.Close()
 
 	registrarCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
 	defer cancel()
