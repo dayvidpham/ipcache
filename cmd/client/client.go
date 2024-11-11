@@ -104,7 +104,7 @@ func main() {
 
 	client := msgs.NewMessenger(conn)
 
-	sendMsg := msgs.ClientRegister()
+	sendMsg := msgs.DaemonRegister()
 	n, err := client.SendN(sendMsg)
 	log.Printf("[INFO] Sending message of %d bytes, %d bytes sitting in buffer", sendMsg.Size(), n)
 	if err != nil {

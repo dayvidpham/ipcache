@@ -9,13 +9,20 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/rand/v2"
 	"os"
+	"reflect"
 	"sync"
 	"time"
 
 	"github.com/dayvidpham/ipcache/internal/msgs"
 	"github.com/mattn/go-sqlite3"
 )
+
+type daemonEntry struct {
+	sessId uint64
+	ip     string
+}
 
 var (
 	parsedTlsHandshakeTimeoutSeconds uint
@@ -30,16 +37,19 @@ var (
 	db        *sql.DB
 	dbTimeout time.Duration
 	registrar *sync.Map
+	daemons   *sync.Map
 )
 
 func init() {
+	log.SetFlags(log.Lshortfile)
+
 	flag.UintVar(&parsedTlsHandshakeTimeoutSeconds, "tls-handshake-timeout-seconds", 5, "max time to complete TLS handshake before server kills connection")
 	flag.UintVar(&parsedPingTimeoutSeconds, "ping-timeout-seconds", 60*10, "max time between pings to server for daemons, before server kills connection")
+
+	daemons = &sync.Map{}
 }
 
 func main() {
-	log.SetFlags(log.Lshortfile)
-
 	///////////////////////////////
 	// Proccess flags
 	///////////////////////////////
@@ -79,13 +89,11 @@ func main() {
 		log.Println(err)
 		return
 	}
-
 	defer prepInsertRegistrarStmt.Close()
 
 	registrarCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
 	defer cancel()
 	registrar, err = getRegistrar(registrarCtx, db)
-
 	if err != nil {
 		log.Println(err)
 		return
@@ -150,6 +158,8 @@ func TlsServe(conn *tls.Conn) {
 		err     error
 		client  msgs.Client
 		recvMsg msgs.Message
+		//isDaemon   = false
+		//isFirstMsg = true
 	)
 
 	// TLS timeout
@@ -175,19 +185,11 @@ func TlsServe(conn *tls.Conn) {
 		return
 	}
 
-	// NOTE: Need some kind of session identifier next???
+	// TODO: Need some kind of session identifier next???
 	// Side-effect from VerifyConnection to tell us client's SubjectKeyId/pubkey/session?
 	// func GetConnPubkey(conn *tls.Conn) { ... }
 
 	server := msgs.NewMessenger(conn)
-
-	//sendMsg := msgs.String("Hello from server\n")
-	//n, err := server.SendN(sendMsg)
-	//log.Printf("[INFO] Sending message of %d bytes, %d bytes sitting in buffer\n", sendMsg.Size(), n)
-	//if err != nil {
-	//	log.Println(err)
-	//	return
-	//}
 
 	for {
 		recvMsg, err = server.Receive()
@@ -201,7 +203,6 @@ func TlsServe(conn *tls.Conn) {
 			log.Println(err)
 			return
 		}
-
 		log.Printf("Received from %+v: %s\n", client, recvMsg.Type)
 
 		err = nil
@@ -209,13 +210,15 @@ func TlsServe(conn *tls.Conn) {
 		case msgs.T_String:
 			StringMessageHandler(recvMsg)
 
-		case msgs.T_ClientRegister:
+		case msgs.T_DaemonRegister:
 			// On register:
 			// - [x] respond with server's ping timeout interval
-			// - [ ] store IP in DB
+			// - [x] store IP in DB
 			//   - [ ] handle logic if IP already in
-			//   - [ ] handle logic if IP in and different
-			err = ClientRegisterHandler(server, pingTimeout, client, recvMsg)
+			//   - [x] handle logic if IP in and different
+			sessId := rand.Uint64()
+			err = DaemonRegisterHandler(server, pingTimeout, client, recvMsg, sessId)
+			defer deleteDaemon(sessId, client)
 		case msgs.T_Ping:
 			err = PingHandler(server, pingTimeout)
 
@@ -227,6 +230,7 @@ func TlsServe(conn *tls.Conn) {
 			log.Println(err)
 			return
 		}
+
 	}
 }
 
@@ -234,7 +238,46 @@ func StringMessageHandler(recvMsg msgs.Message) {
 	log.Printf("\t- Payload: %s\n", recvMsg.Payload)
 }
 
-func ClientRegisterHandler(server msgs.Messenger, pingTimeout time.Duration, client msgs.Client, recvMsg msgs.Message) (err error) {
+func DaemonRegisterHandler(
+	server msgs.Messenger,
+	pingTimeout time.Duration,
+	client msgs.Client,
+	recvMsg msgs.Message,
+	sessId uint64,
+) (err error) {
+	// Handles duplicate ID and IP registration
+	var entry daemonEntry
+	if xentry, ok := daemons.Load(client.Id); ok {
+		entry, ok = xentry.(daemonEntry)
+		if !ok {
+			log.Printf("[ERROR] Expected value with type `daemonEntry` to be stored in `daemons`\n\t- Got %v: %+v\n", reflect.TypeOf(entry), entry)
+		}
+
+		ip := entry.ip
+		if ip == client.IP.String() {
+			err = fmt.Errorf("[ERROR] Rejecting new registration for same client ID and IP\n\t- Client: %+v\n", client)
+			errMsg := msgs.Err()
+			errMsg.Payload = []byte(err.Error())
+			sendErr := server.Send(errMsg)
+			if sendErr != nil {
+				err = fmt.Errorf("[ERROR] Failed to send errMsg to client: %w\n\t- %w\n", err, sendErr)
+			}
+			return err
+		}
+	} else {
+		entry = daemonEntry{sessId: sessId, ip: client.IP.String()}
+	}
+
+	registrarCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
+	defer cancel()
+	err = insertRegistrar(registrarCtx, db, client, recvMsg.UnixTimestampUtc)
+	if err != nil {
+		return err
+	}
+	registrar.Store(client.Id, client.IP)
+	daemons.Store(client.Id, entry)
+	log.Printf("\t- Successfully stored entry in daemons: daemonEntry%+v\n", entry)
+
 	log.Printf("\t- Responding with ping timeout as String(%v) ...\n", pingTimeout)
 
 	timeoutMsg := msgs.String(pingTimeout.String())
@@ -248,15 +291,6 @@ func ClientRegisterHandler(server msgs.Messenger, pingTimeout time.Duration, cli
 		return err
 	}
 
-	registrar.Store(client.Id, client.IP)
-	registrarCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
-	defer cancel()
-
-	err = insertRegistrar(registrarCtx, db, client, recvMsg.UnixTimestampUtc)
-	if err != nil {
-		return err
-	}
-
 	return
 }
 
@@ -264,4 +298,16 @@ func PingHandler(server msgs.Messenger, pingTimeout time.Duration) (err error) {
 	log.Printf("\t- Resetting SetReadTimeout(%v).\n\n", pingTimeout)
 	err = server.SetReadTimeout(pingTimeout)
 	return err
+}
+
+func deleteDaemon(sessId uint64, daemon msgs.Client) {
+	entry := daemonEntry{sessId: sessId, ip: daemon.IP.String()}
+	deleted := daemons.CompareAndDelete(daemon.Id, entry)
+	if deleted {
+		log.Printf(
+			"[INFO] Successfully deleted key-value pair from daemons\n\t- daemonEntry: %+v\n\n",
+			entry)
+	} else {
+		log.Printf("[INFO] Delete failed, could not find key `%s`\n\b", daemon.Id)
+	}
 }

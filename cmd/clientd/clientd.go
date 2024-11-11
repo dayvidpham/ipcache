@@ -50,7 +50,7 @@ func init() {
 	flag.StringVar(&parsedCertPath, "cert", "", "path to your certificate")
 	flag.StringVar(&parsedPrivatekeyPath, "privatekey", "", "path to your private key that was used to sign your certificate")
 	flag.StringVar(&parsedServerRootCACert, "server-root-ca-cert", "", "path to the expected server root CA certificate, used for verification")
-	flag.UintVar(&parsedRegisterTimeoutSeconds, "register-timeout-seconds", 10, "max time to wait for server to respond to ClientRegister message before killing the connection")
+	flag.UintVar(&parsedRegisterTimeoutSeconds, "register-timeout-seconds", 10, "max time to wait for server to respond to DaemonRegister message before killing the connection")
 }
 
 func main() {
@@ -120,14 +120,17 @@ func main() {
 		Register with server, kill connection if server response takes too long
 		Should receive the expected ping timeout from the server as a response
 	*/
-	sendMsg := msgs.ClientRegister()
+	sendMsg := msgs.DaemonRegister()
 	err = client.Send(sendMsg)
-	log.Printf("Sending ClientRegister message\n")
+	log.Printf("Sending DaemonRegister message\n")
 	if err != nil {
 		log.Println(err)
 		return
 	}
-	client.SetReadTimeout(registerTimeout)
+	if err = client.SetReadTimeout(registerTimeout); err != nil {
+		log.Println(err)
+		return
+	}
 
 	timeoutMsg, err := client.Receive()
 	if err != nil {
@@ -136,6 +139,10 @@ func main() {
 	}
 	if timeoutMsg.Type != msgs.T_String {
 		log.Printf("[FATAL] Expected the server to respond with MessageType String, but got %s.\n", timeoutMsg.Type)
+		if timeoutMsg.Type == msgs.T_Err {
+			log.Printf("Reason: %v\n", string(timeoutMsg.Payload))
+		}
+		return
 	}
 
 	log.Printf(

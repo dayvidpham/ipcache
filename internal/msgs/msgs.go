@@ -28,7 +28,7 @@ const (
 	T_Ping
 	T_Pong
 
-	T_ClientRegister
+	T_DaemonRegister
 	T_ClientGetIPs
 
 	T_ClientGrantAuthorization
@@ -43,7 +43,7 @@ var messageTypeName = map[MessageType]string{
 	T_Ping: "Ping",
 	T_Pong: "Pong",
 
-	T_ClientRegister: "ClientRegister",
+	T_DaemonRegister: "DaemonRegister",
 	T_ClientGetIPs:   "ClientGetIPs",
 
 	T_ClientGrantAuthorization:  "ClientGrantAuthorization",
@@ -101,8 +101,8 @@ func Pong() Message {
 	return NewMessage(T_Pong)
 }
 
-func ClientRegister() Message {
-	return NewMessage(T_ClientRegister)
+func DaemonRegister() Message {
+	return NewMessage(T_DaemonRegister)
 }
 
 func String(data string) Message {
