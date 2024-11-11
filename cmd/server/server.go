@@ -239,6 +239,7 @@ func DaemonRegisterHandler(
 		// Found duplicate: terminate connection
 		if ipstr == client.IP.String() {
 			err = fmt.Errorf("[ERROR] Rejecting new registration for same client ID and IP\n\t- Client: %+v\n", client)
+
 			errMsg := msgs.Err()
 			errMsg.Payload = []byte(err.Error())
 			sendErr := server.Send(errMsg)

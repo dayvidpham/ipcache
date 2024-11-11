@@ -50,12 +50,12 @@ func initDb(ctx context.Context, db *sql.DB) (err error) {
 	// Check if Enum-style table exists, else create and insert values into it
 	row := db.QueryRowContext(ctx,
 		`SELECT EXISTS(
-				SELECT
-					name
-				FROM
-					main.sqlite_schema
-				WHERE
-					name = 'AuthorizationType'
+			SELECT
+				name
+			FROM
+				main.sqlite_schema
+			WHERE
+				name = 'AuthorizationType'
 			)
 		;`)
 
@@ -88,9 +88,9 @@ func initDb(ctx context.Context, db *sql.DB) (err error) {
 
 		_, err = tx.ExecContext(ctx,
 			`INSERT INTO 
-					'AuthorizationType' ('type', 'desc')
-				VALUES
-					(1, 'GetIP')
+				'AuthorizationType' ('type', 'desc')
+			VALUES
+				(1, 'GetIP')
 			;`)
 		if err != nil {
 			rollbackErr := tx.Rollback()
@@ -105,9 +105,21 @@ func initDb(ctx context.Context, db *sql.DB) (err error) {
 	_, err = db.ExecContext(ctx,
 		`CREATE TABLE IF NOT EXISTS
 			AuthorizationGrants(
-				owner   TEXT     NOT NULL COLLATE BINARY,
-				other   TEXT     NOT NULL COLLATE BINARY,
-				type    INTEGER  NOT NULL REFERENCES AuthorizationType(type),
+				owner
+					TEXT
+					NOT NULL
+					COLLATE BINARY,
+				other
+					TEXT
+					NOT NULL
+					COLLATE BINARY,
+				type
+					INTEGER
+					NOT NULL,
+				FOREIGN KEY(type)
+					REFERENCES AuthorizationType(type)
+					ON UPDATE RESTRICT
+					ON DELETE RESTRICT,
 				PRIMARY KEY(owner, other, type)
 			)
 			WITHOUT ROWID
