@@ -8,6 +8,7 @@ import (
 	"encoding/gob"
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"time"
@@ -121,10 +122,14 @@ func Encode(enc *gob.Encoder, msg Message) (err error) {
 
 func Decode(dec *gob.Decoder) (msg Message, err error) {
 	err = dec.Decode(&msg)
-	if err != nil {
-		return msg, fmt.Errorf("[ERROR] Failed to decode Message\n\t%+w\n", err)
+	switch {
+	case err == nil:
+		return
+	case errors.Is(err, io.EOF):
+		return
+	default:
+		return msg, fmt.Errorf("[ERROR] Decoder failed to decode Message\n\t%+w\n", err)
 	}
-	return msg, err
 }
 
 type Client struct {
@@ -220,10 +225,15 @@ func (bm *blockingMessenger) SendN(msg Message) (n int, err error) {
 }
 
 func (bm *blockingMessenger) Receive() (msg Message, err error) {
-	if msg, err = Decode(bm.dec); err != nil {
+	msg, err = Decode(bm.dec)
+	switch {
+	case err == nil:
+		return
+	case errors.Is(err, io.EOF):
+		return
+	default:
 		return msg, fmt.Errorf("[ERROR] Messenger failed during Receive\n\t%w\n", err)
 	}
-	return
 }
 
 func (bm *blockingMessenger) SetReadTimeout(timeout time.Duration) (err error) {
