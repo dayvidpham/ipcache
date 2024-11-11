@@ -5,13 +5,12 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
-	"encoding/base64"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"log"
 	"os"
+	"sync"
 	"time"
 
 	"github.com/dayvidpham/ipcache/internal/msgs"
@@ -24,6 +23,13 @@ var (
 
 	tlsHandshakeTimeout time.Duration
 	pingTimeout         time.Duration
+)
+
+var (
+	rootCtx   context.Context
+	db        *sql.DB
+	dbTimeout time.Duration
+	registrar *sync.Map
 )
 
 func init() {
@@ -50,15 +56,16 @@ func main() {
 	sql3V, _, _ := sqlite3.Version()
 	log.Printf("[DEBUG] sqlite3 version: %v\n", sql3V)
 
-	rootCtx := context.Background()
-	db, err := sql.Open("sqlite3", "file:ipcache.db")
+	var err error
+	rootCtx = context.Background()
+	db, err = sql.Open("sqlite3", "file:ipcache.db")
 	if err != nil {
 		log.Println(err)
 		return
 	}
 	defer db.Close()
 
-	dbTimeout := time.Second * 3
+	dbTimeout = time.Second * 3
 	pingCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
 	defer cancel()
 	if err = db.PingContext(pingCtx); err != nil {
@@ -69,6 +76,17 @@ func main() {
 	initCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
 	defer cancel()
 	if err = initDb(initCtx, db); err != nil {
+		log.Println(err)
+		return
+	}
+
+	defer prepInsertRegistrarStmt.Close()
+
+	registrarCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
+	defer cancel()
+	registrar, err = getRegistrar(registrarCtx, db)
+
+	if err != nil {
 		log.Println(err)
 		return
 	}
@@ -91,33 +109,12 @@ func main() {
 	// mutex: sync.RWLock
 	// atomic CAS: atomics
 	// sync.Map
-	cache := make(map[string]bool)
 	config := &tls.Config{
 		MinVersion:   tls.VersionTLS13,
 		Certificates: []tls.Certificate{cert},
 		ClientCAs:    caCertPool,
 		ClientAuth:   tls.RequireAndVerifyClientCert,
-
-		VerifyConnection: func(state tls.ConnectionState) (err error) {
-			// NOTE: Use this b/c need entrypoint that's always called in order to grab client's cert
-			certs := state.PeerCertificates
-			if len(certs) < 1 {
-				return errors.New("PeerCertificates is empty, none were given by client")
-			}
-			cert := certs[0]
-
-			pubkey := base64.StdEncoding.EncodeToString(cert.SubjectKeyId)
-
-			_, ok := cache[pubkey]
-			if !ok {
-				cache[pubkey] = true
-			}
-			log.Printf("[INFO] Client public key: %+v\n", pubkey)
-
-			return err
-		},
 	}
-
 	///////////////////////////////
 	// Start server
 	///////////////////////////////
@@ -218,7 +215,7 @@ func TlsServe(conn *tls.Conn) {
 			// - [ ] store IP in DB
 			//   - [ ] handle logic if IP already in
 			//   - [ ] handle logic if IP in and different
-			err = ClientRegisterHandler(server, pingTimeout)
+			err = ClientRegisterHandler(server, pingTimeout, client, recvMsg)
 		case msgs.T_Ping:
 			err = PingHandler(server, pingTimeout)
 
@@ -237,7 +234,7 @@ func StringMessageHandler(recvMsg msgs.Message) {
 	log.Printf("\t- Payload: %s\n", recvMsg.Payload)
 }
 
-func ClientRegisterHandler(server msgs.Messenger, pingTimeout time.Duration) (err error) {
+func ClientRegisterHandler(server msgs.Messenger, pingTimeout time.Duration, client msgs.Client, recvMsg msgs.Message) (err error) {
 	log.Printf("\t- Responding with ping timeout as String(%v) ...\n", pingTimeout)
 
 	timeoutMsg := msgs.String(pingTimeout.String())
@@ -250,6 +247,16 @@ func ClientRegisterHandler(server msgs.Messenger, pingTimeout time.Duration) (er
 	if err != nil {
 		return err
 	}
+
+	registrar.Store(client.Id, client.IP)
+	registrarCtx, cancel := context.WithTimeout(rootCtx, dbTimeout)
+	defer cancel()
+
+	err = insertRegistrar(registrarCtx, db, client, recvMsg.UnixTimestampUtc)
+	if err != nil {
+		return err
+	}
+
 	return
 }
 
